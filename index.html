@@ -175,6 +175,56 @@
             font-size: 0.78rem;
             font-weight: 600;
             cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .auth-btn.signed-in {
+            padding: 4px 10px 4px 5px;
+            background: var(--surface);
+            border-color: var(--done-border);
+        }
+        .auth-avatar {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            object-fit: cover;
+            background: var(--ink);
+            color: #fff;
+            font-size: 0.68rem;
+            font-weight: 700;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .sync-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: #22c55e;
+            display: inline-block;
+        }
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%) translateY(16px);
+            background: var(--ink);
+            color: #fff;
+            padding: 10px 16px;
+            border-radius: 999px;
+            font-size: 0.82rem;
+            font-weight: 600;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.25s var(--ease-out), transform 0.25s var(--ease-out);
+            z-index: 200;
+            white-space: nowrap;
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.16);
+        }
+        .toast.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
         }
 
         /* 주간 스트릭 바 */
@@ -694,6 +744,7 @@
         <button class="add-routine-btn" id="openCreateBtn">+ 루틴</button>
     </div>
 </header>
+<div class="toast" id="toast"></div>
 
 <section class="week-card reveal reveal-delay-2">
     <div class="week-top">
@@ -1498,6 +1549,22 @@
     };
 
     const authBtn = document.getElementById("authBtn");
+    const todayLabel = document.getElementById("todayLabel");
+    const baseDateText = todayLabel.textContent;
+    const toastEl = document.getElementById("toast");
+    let toastTimer = null;
+
+    function showToast(msg) {
+        toastEl.textContent = msg;
+        toastEl.classList.add("show");
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toastEl.classList.remove("show"), 2400);
+    }
+
+    function esc(str) {
+        return String(str || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+
     const isConfigured = firebaseConfig.apiKey && firebaseConfig.apiKey !== "YOUR_API_KEY";
 
     if (!isConfigured) {
@@ -1510,27 +1577,48 @@
         const db = getFirestore(app);
         const provider = new GoogleAuthProvider();
         let currentUser = null;
+        let didJustSignIn = false;
 
         authBtn.onclick = () => {
             if (currentUser) {
-                signOut(auth);
+                const name = currentUser.displayName || "내";
+                if (confirm(`${name}님 계정에서 로그아웃할까요?`)) {
+                    signOut(auth);
+                }
             } else {
-                signInWithPopup(auth, provider).catch(err => alert("로그인 실패: " + err.message));
+                didJustSignIn = true;
+                signInWithPopup(auth, provider).catch(err => {
+                    didJustSignIn = false;
+                    alert("로그인 실패: " + err.message);
+                });
             }
         };
 
         onAuthStateChanged(auth, async (user) => {
             currentUser = user;
             if (user) {
-                authBtn.textContent = "로그아웃";
+                const displayName = user.displayName || (user.email ? user.email.split("@")[0] : "사용자");
+                const avatarHtml = user.photoURL
+                    ? `<img class="auth-avatar" src="${esc(user.photoURL)}" alt="" />`
+                    : `<span class="auth-avatar">${esc(displayName.slice(0, 1))}</span>`;
+                authBtn.classList.add("signed-in");
+                authBtn.innerHTML = `${avatarHtml}<span>${esc(displayName)}</span><span class="sync-dot"></span>`;
+                todayLabel.innerHTML = `${esc(baseDateText)} · <span style="color:var(--done-ink); font-weight:600;">클라우드 동기화</span>`;
+
                 const snap = await getDoc(doc(db, "users", user.uid));
                 if (snap.exists()) {
                     window.applyCloudData?.(snap.data());
                 } else {
                     await window.syncToCloud?.();
                 }
+                if (didJustSignIn) {
+                    didJustSignIn = false;
+                    showToast(`${displayName}님 계정으로 동기화되었습니다`);
+                }
             } else {
+                authBtn.classList.remove("signed-in");
                 authBtn.textContent = "로그인";
+                todayLabel.textContent = baseDateText;
             }
         });
 
