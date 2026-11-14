@@ -166,6 +166,16 @@
             font-weight: 600;
             cursor: pointer;
         }
+        .auth-btn {
+            background: var(--surface);
+            color: var(--ink);
+            border: 1px solid var(--border);
+            padding: 6px 11px;
+            border-radius: 999px;
+            font-size: 0.78rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
 
         /* 주간 스트릭 바 */
         .week-card {
@@ -680,6 +690,7 @@
     </div>
     <div class="header-right">
         <span class="count-pill" id="totalBadge">완료 0회</span>
+        <button class="auth-btn" id="authBtn">로그인</button>
         <button class="add-routine-btn" id="openCreateBtn">+ 루틴</button>
     </div>
 </header>
@@ -1167,6 +1178,7 @@
         resetTimersAndSets();
         renderTabs();
         renderExercises();
+        window.syncToCloud?.();
     };
 
     function renderExercises() {
@@ -1342,6 +1354,7 @@
         renderTabs();
         renderExercises();
         document.getElementById("createModal").classList.remove("open");
+        window.syncToCloud?.();
     };
 
     function loadHistory() {
@@ -1438,6 +1451,22 @@
         resetTimersAndSets();
         renderExercises();
         renderHistory();
+        window.syncToCloud?.();
+    };
+
+    window.applyCloudData = ({ history, customRoutines: cloudCustom }) => {
+        if (Array.isArray(history)) {
+            try { localStorage.setItem("bodyweight_history", JSON.stringify(history)); } catch (e) {}
+        }
+        if (Array.isArray(cloudCustom)) {
+            customRoutines = cloudCustom;
+            try { localStorage.setItem("bodyweight_custom_routines", JSON.stringify(cloudCustom)); } catch (e) {}
+        }
+        currentRoutineIdx = 0;
+        resetTimersAndSets();
+        renderTabs();
+        renderExercises();
+        renderHistory();
     };
 
     const today = new Date();
@@ -1452,6 +1481,70 @@
     setTimeout(() => {
         document.getElementById("introOverlay").classList.add("hide");
     }, 650);
+</script>
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+    import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+    import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+
+    const firebaseConfig = {
+        apiKey: "AIzaSyAI5eV_R1cu1HerK-vkOXgBC_m2qL8H6F4",
+        authDomain: "bodyweight-76b34.firebaseapp.com",
+        projectId: "bodyweight-76b34",
+        storageBucket: "bodyweight-76b34.firebasestorage.app",
+        messagingSenderId: "13679817139",
+        appId: "1:13679817139:web:91d478b4d91a108f6a1bc6",
+        measurementId: "G-RMKXQ5W17C"
+    };
+
+    const authBtn = document.getElementById("authBtn");
+    const isConfigured = firebaseConfig.apiKey && firebaseConfig.apiKey !== "YOUR_API_KEY";
+
+    if (!isConfigured) {
+        authBtn.onclick = () => {
+            alert("Firebase 콘솔에서 발급받은 firebaseConfig 값을 index.html에 넣으면 구글 로그인이 활성화됩니다.");
+        };
+    } else {
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const provider = new GoogleAuthProvider();
+        let currentUser = null;
+
+        authBtn.onclick = () => {
+            if (currentUser) {
+                signOut(auth);
+            } else {
+                signInWithPopup(auth, provider).catch(err => alert("로그인 실패: " + err.message));
+            }
+        };
+
+        onAuthStateChanged(auth, async (user) => {
+            currentUser = user;
+            if (user) {
+                authBtn.textContent = "로그아웃";
+                const snap = await getDoc(doc(db, "users", user.uid));
+                if (snap.exists()) {
+                    window.applyCloudData?.(snap.data());
+                } else {
+                    await window.syncToCloud?.();
+                }
+            } else {
+                authBtn.textContent = "로그인";
+            }
+        });
+
+        window.syncToCloud = async () => {
+            if (!currentUser) return;
+            const history = JSON.parse(localStorage.getItem("bodyweight_history") || "[]");
+            const customRoutines = JSON.parse(localStorage.getItem("bodyweight_custom_routines") || "[]");
+            await setDoc(doc(db, "users", currentUser.uid), {
+                history,
+                customRoutines,
+                updatedAt: new Date().toISOString()
+            }, { merge: true });
+        };
+    }
 </script>
 </body>
 </html>
